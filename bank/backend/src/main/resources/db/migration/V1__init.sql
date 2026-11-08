@@ -1,0 +1,2 @@
+-- Initial empty schema. Flyway creates its schema history table.
+-- Add application tables in subsequent versioned migrations.

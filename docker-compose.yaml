@@ -1,0 +1,333 @@
+# Local development: docker compose --profile all up --build --wait
+services:
+
+  # Internal networks do not publish ports; this forwarder exposes localhost only.
+  bank-db-access:
+    image: alpine/socat:latest
+    profiles: [bank, all]
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "TCP:bank-db:5432"]
+    ports:
+      - "127.0.0.1:5431:5432"
+    networks:
+      - bank-data
+      - bank-db-admin
+
+  bank-db:
+    image: postgres:17
+    profiles: [bank, all]
+    environment:
+      POSTGRES_DB: bank
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - bank-db-data:/var/lib/postgresql/data
+    networks:
+      - bank-data
+    depends_on:
+      bank-db-access:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bank"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bank-backend:
+    build:
+      context: ./bank/backend
+      dockerfile: Dockerfile.dev
+    profiles: [bank, all]
+    init: true
+    environment:
+      DB_URL: jdbc:postgresql://bank-db:5432/bank
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      SERVER_PORT: 8081
+      CORS_ALLOWED_ORIGINS: http://localhost:5171,http://localhost:5172,http://localhost:5173
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./bank/backend/src:/app/src:ro
+      - ./bank/backend/pom.xml:/app/pom.xml:ro
+      - bank-target:/app/target
+      - bank-maven:/root/.m2
+    networks:
+      - bank-data
+      - bank-web
+      - public-api
+    depends_on:
+      bank-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8081/actuator/health > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+  bank-frontend:
+    build:
+      context: ./bank/frontend
+      dockerfile: Dockerfile.dev
+    profiles: [bank, all]
+    init: true
+    environment:
+      PORT: "5171"
+      API_PROXY_TARGET: ${BANK_API_PROXY_TARGET:-http://bank-backend:8081}
+      VITE_USE_POLLING: "true"
+    ports:
+      - "127.0.0.1:5171:5171"
+    volumes:
+      - ./bank/frontend/src:/app/src:ro
+      - ./bank/frontend/public:/app/public:ro
+      - ./bank/frontend/index.html:/app/index.html:ro
+      - ./bank/frontend/vite.config.js:/app/vite.config.js:ro
+      - ./bank/frontend/package.json:/app/package.json:ro
+      - ./bank/frontend/package-lock.json:/app/package-lock.json:ro
+      - ./bank/frontend/.env.development:/app/.env.development:ro
+      - ./bank/frontend/eslint.config.js:/app/eslint.config.js:ro
+      - bank-node-modules:/app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - bank-web
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5171/@vite/client').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+  # Internal networks do not publish ports; this forwarder exposes localhost only.
+  parking-db-access:
+    image: alpine/socat:latest
+    profiles: [parking, all]
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "TCP:parking-db:5432"]
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - parking-data
+      - parking-db-admin
+
+  parking-db:
+    image: postgres:17
+    profiles: [parking, all]
+    environment:
+      POSTGRES_DB: parking_system
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - parking-db-data:/var/lib/postgresql/data
+    networks:
+      - parking-data
+    depends_on:
+      parking-db-access:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d parking_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  parking-backend:
+    build:
+      context: ./parking_system/backend
+      dockerfile: Dockerfile.dev
+    profiles: [parking, all]
+    init: true
+    environment:
+      DB_URL: jdbc:postgresql://parking-db:5432/parking_system
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      SERVER_PORT: 8082
+      CORS_ALLOWED_ORIGINS: http://localhost:5171,http://localhost:5172,http://localhost:5173
+    ports:
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - ./parking_system/backend/src:/app/src:ro
+      - ./parking_system/backend/pom.xml:/app/pom.xml:ro
+      - parking-target:/app/target
+      - parking-maven:/root/.m2
+    networks:
+      - parking-data
+      - parking-web
+      - public-api
+    depends_on:
+      parking-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8082/actuator/health > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+  parking-frontend:
+    build:
+      context: ./parking_system/frontend
+      dockerfile: Dockerfile.dev
+    profiles: [parking, all]
+    init: true
+    environment:
+      PORT: "5172"
+      API_PROXY_TARGET: ${PARKING_API_PROXY_TARGET:-http://parking-backend:8082}
+      VITE_USE_POLLING: "true"
+    ports:
+      - "127.0.0.1:5172:5172"
+    volumes:
+      - ./parking_system/frontend/src:/app/src:ro
+      - ./parking_system/frontend/public:/app/public:ro
+      - ./parking_system/frontend/index.html:/app/index.html:ro
+      - ./parking_system/frontend/vite.config.js:/app/vite.config.js:ro
+      - ./parking_system/frontend/package.json:/app/package.json:ro
+      - ./parking_system/frontend/package-lock.json:/app/package-lock.json:ro
+      - ./parking_system/frontend/.env.development:/app/.env.development:ro
+      - ./parking_system/frontend/eslint.config.js:/app/eslint.config.js:ro
+      - parking-node-modules:/app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - parking-web
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5172/@vite/client').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+  # Internal networks do not publish ports; this forwarder exposes localhost only.
+  payment-processor-db-access:
+    image: alpine/socat:latest
+    profiles: [payment-processor, all]
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "TCP:payment-processor-db:5432"]
+    ports:
+      - "127.0.0.1:5433:5432"
+    networks:
+      - payment-processor-data
+      - payment-processor-db-admin
+
+  payment-processor-db:
+    image: postgres:17
+    profiles: [payment-processor, all]
+    environment:
+      POSTGRES_DB: payment_processor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - payment-processor-db-data:/var/lib/postgresql/data
+    networks:
+      - payment-processor-data
+    depends_on:
+      payment-processor-db-access:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_processor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payment-processor-backend:
+    build:
+      context: ./payment_processor/backend
+      dockerfile: Dockerfile.dev
+    profiles: [payment-processor, all]
+    init: true
+    environment:
+      DB_URL: jdbc:postgresql://payment-processor-db:5432/payment_processor
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      SERVER_PORT: 8083
+      CORS_ALLOWED_ORIGINS: http://localhost:5171,http://localhost:5172,http://localhost:5173
+    ports:
+      - "127.0.0.1:8083:8083"
+    volumes:
+      - ./payment_processor/backend/src:/app/src:ro
+      - ./payment_processor/backend/pom.xml:/app/pom.xml:ro
+      - payment-processor-target:/app/target
+      - payment-processor-maven:/root/.m2
+    networks:
+      - payment-processor-data
+      - payment-processor-web
+      - public-api
+    depends_on:
+      payment-processor-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8083/actuator/health > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+  payment-processor-frontend:
+    build:
+      context: ./payment_processor/frontend
+      dockerfile: Dockerfile.dev
+    profiles: [payment-processor, all]
+    init: true
+    environment:
+      PORT: "5173"
+      API_PROXY_TARGET: ${PAYMENT_PROCESSOR_API_PROXY_TARGET:-http://payment-processor-backend:8083}
+      VITE_USE_POLLING: "true"
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./payment_processor/frontend/src:/app/src:ro
+      - ./payment_processor/frontend/public:/app/public:ro
+      - ./payment_processor/frontend/index.html:/app/index.html:ro
+      - ./payment_processor/frontend/vite.config.js:/app/vite.config.js:ro
+      - ./payment_processor/frontend/package.json:/app/package.json:ro
+      - ./payment_processor/frontend/package-lock.json:/app/package-lock.json:ro
+      - ./payment_processor/frontend/.env.development:/app/.env.development:ro
+      - ./payment_processor/frontend/eslint.config.js:/app/eslint.config.js:ro
+      - payment-processor-node-modules:/app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - payment-processor-web
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/@vite/client').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+
+networks:
+  # Simulates public API connectivity between independent systems.
+  public-api:
+    driver: bridge
+  bank-web:
+    driver: bridge
+  bank-db-admin:
+    driver: bridge
+  bank-data:
+    driver: bridge
+    internal: true
+  parking-web:
+    driver: bridge
+  parking-db-admin:
+    driver: bridge
+  parking-data:
+    driver: bridge
+    internal: true
+  payment-processor-web:
+    driver: bridge
+  payment-processor-db-admin:
+    driver: bridge
+  payment-processor-data:
+    driver: bridge
+    internal: true
+
+volumes:
+  bank-db-data:
+  bank-target:
+  bank-maven:
+  bank-node-modules:
+  parking-db-data:
+  parking-target:
+  parking-maven:
+  parking-node-modules:
+  payment-processor-db-data:
+  payment-processor-target:
+  payment-processor-maven:
+  payment-processor-node-modules:

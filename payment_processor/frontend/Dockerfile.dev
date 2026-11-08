@@ -1,0 +1,8 @@
+FROM node:24-alpine
+
+WORKDIR /app
+COPY . .
+
+EXPOSE 5173
+# Refresh dependencies after package-lock.json changes; node_modules has its own volume.
+CMD ["sh", "-c", "npm ci --no-audit --no-fund && exec npm run dev -- --host 0.0.0.0"]

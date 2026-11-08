@@ -22,3 +22,16 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Local environment overrides; shared development defaults and examples are versioned.
+.env
+.env.*
+!.env.development
+!.env.example
+!.env.*.example
+
+# Repository-level editor settings and OS metadata
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
